@@ -234,7 +234,7 @@ router.get('/alumno/:matricula/clases/pendientes', (req, res) => {
 router.get('/alumno/:matricula/clases/asistencias', (req, res) => {
     const alumnoMatricula = req.params.matricula;
 
-    Clase.find({ 'alumnos.matricula': alumnoMatricula, estado: { $in: ['en curso', 'terminada'] } })
+    Clase.find({ 'alumnos.matricula': alumnoMatricula, estado: { $in: ['activa', 'finalizada'] } })
         .then((clases) => {
             res.status(200).json(clases);
         })
@@ -262,39 +262,51 @@ router.put('/clase/:materia/fecha/:fecha/estado', (req, res) => {
             res.status(500).json({ message: 'Error Interno del Servidor' });
         });
 });
-// Ruta para cambiar el estado de una clase a "finalizado" si está en estado "activa"
-router.put('/clase/:materia/fecha/:fecha/finalizar', (req, res) => {
+
+// Ruta para cambiar el estado de una clase a "finalizada" si está en estado "activa"
+router.put('/clase/:materia/fecha/:fecha/finalizar', async (req, res) => {
     const materia = req.params.materia;
     const fecha_hora = req.params.fecha;
 
-    Clase.findOne({ materia, fecha_hora })
-        .then((clase) => {
-            if (!clase) {
-                return res.status(404).json({ message: 'Clase no encontrada' });
-            }
+    try {
+        const clase = await Clase.findOne({ materia, fecha_hora });
 
-            if (clase.estado !== 'activa') {
-                return res.status(400).json({ message: 'El estado actual de la clase no es "activa"' });
-            }
+        if (!clase) {
+            return res.status(404).json({ message: 'Clase no encontrada' });
+        }
 
-            // Cambiar el estado a "finalizado" solo si el estado actual es "activa"
-            clase.estado = 'finalizado';
+        if (clase.estado !== 'activa') {
+            return res.status(400).json({ message: 'El estado actual de la clase no es "activa"' });
+        }
 
-            // Cambiar el estado de los alumnos a "falta"
-            clase.alumnos.forEach((alumno) => {
+        // Cambiar el estado a "finalizada" solo si el estado actual es "activa"
+        clase.estado = 'finalizada';
+
+        // Cambiar el estado de los alumnos a "falta" solo si su estado actual es "pendiente"
+        clase.alumnos.forEach((alumno) => {
+            if (alumno.asistencia === 'pendiente') {
                 alumno.asistencia = 'falta';
-            });
-
-            return clase.save();
-        })
-        .then(() => {
-            res.status(200).json({ message: 'Estado de la clase cambiado a "finalizado", alumnos marcados como "falta"' });
-        })
-        .catch((error) => {
-            console.error('Error al cambiar el estado de la clase:', error);
-            res.status(500).json({ message: 'Error Interno del Servidor' });
+            }
         });
+
+        await clase.save();
+
+        // Obtener el tutor asociado a la clase y actualizar su claseActiva a "NA"
+        const tutor = await Tutor.findOne({ matricula: clase.tutor });
+
+        if (tutor) {
+            tutor.claseActiva = "NA";
+            await tutor.save();
+        }
+
+        res.status(200).json({ message: 'Estado de la clase cambiado a "finalizada", alumnos marcados como "falta" y claseActiva del tutor establecido como "NA"' });
+    } catch (error) {
+        console.error('Error al cambiar el estado de la clase:', error);
+        res.status(500).json({ message: 'Error Interno del Servidor' });
+    }
 });
+
+
 
 // Ruta para obtener el ID de una clase específica por materia y fecha_hora
 router.get('/clase/:materia/fecha/:fecha/id', (req, res) => {
@@ -314,17 +326,41 @@ router.get('/clase/:materia/fecha/:fecha/id', (req, res) => {
         });
 });
 
-// Agrega esta ruta al archivo de claseRoutes.js
-router.post('/update-clase-id', (req, res) => {
-    const { selectedClaseId } = req.body;
-    globalVariables.setSelectedClaseId(selectedClaseId); // Almacena el ID en la variable global
-    res.status(200).json({ message: 'ID de clase actualizado correctamente.' });
+// Ruta para actualizar el ID de la clase activa de un tutor específico
+router.post('/clase/:selectedClaseId/tutor/:tutorMatr/actualizar', async (req, res) => {
+    const selectedClaseId = req.params.selectedClaseId;
+    const tutorMatricula  = req.params.tutorMatr;
+    try {
+        const tutor = await Tutor.findOne({ matricula: tutorMatricula });
+        if (!tutor) {
+            return res.status(404).json({ message: 'Tutor no encontrado' });
+        }
+
+        tutor.claseActiva = selectedClaseId;
+        await tutor.save();
+
+        res.status(200).json({ message: 'ID de clase activa agregado al tutor correctamente.' });
+    } catch (error) {
+        console.error('Error al agregar el ID de clase al tutor:', error);
+        res.status(500).json({ message: 'Error Interno del Servidor' });
+    }
 });
 
-// Agrega esta ruta al archivo de claseRoutes.js
-router.get('/get-clase-id', (req, res) => {
-    const selectedClaseId = globalVariables.getSelectedClaseId();
-    res.status(200).json({ selectedClaseId });
+// Ruta para obtener el ID de la clase activa de un tutor específico
+router.get('/clase/tutor/:tutorMatricula/get-clase-activa', async (req, res) => {
+    const tutorMatricula = req.params.tutorMatricula;
+
+    try {
+        const tutor = await Tutor.findOne({ matricula: tutorMatricula }).populate('clasesActivas');
+        if (!tutor) {
+            return res.status(404).json({ message: 'Tutor no encontrado' });
+        }
+
+        res.status(200).json({ selectedClaseId: tutor.claseActiva });
+    } catch (error) {
+        console.error('Error al obtener la clase activa del tutor:', error);
+        res.status(500).json({ message: 'Error Interno del Servidor' });
+    }
 });
 
 // Ruta para obtener el estado de una clase por su ID
@@ -343,5 +379,35 @@ router.get('/get-clase-estado/:id', (req, res) => {
             res.status(500).json({ message: 'Error Interno del Servidor' });
         });
 });
+
+
+router.put('/clase/:id/asistencia', (req, res) => {
+    const claseId = req.params.id;
+    const { alumnoId } = req.body;
+
+    Clase.findById(claseId)
+        .then((clase) => {
+            if (!clase) {
+                return res.status(404).json({ message: 'Clase no encontrada' });
+            }
+            
+            const alumno = clase.alumnos.find(a => a.matricula === alumnoId);
+            if (!alumno) {
+                return res.status(400).json({ message: 'Alumno no inscrito en esta clase' });
+            }
+            
+            alumno.asistencia = 'asistido';
+
+            return clase.save();
+        })
+        .then(() => {
+            res.status(200).json({ message: 'Estado del alumno cambiado a "asistido" exitosamente' });
+        })
+        .catch((error) => {
+            console.error('Error al cambiar el estado del alumno a "asistido":', error);
+            res.status(500).json({ message: 'Error Interno del Servidor' });
+        });
+});
+
 
 module.exports = router;
