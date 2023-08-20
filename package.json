@@ -11,8 +11,5 @@
   "dependencies": {
     "cors": "^2.8.5",
     "mongoose": "^5.13.2"
-  },
-  "engines": {
-    "node": "14.17.0"
   }
 }
