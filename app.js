@@ -44,7 +44,7 @@ app.use('/api', claseRoutes);
 
 // Ruta para autenticar al usuario
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, deviceToken } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ message: 'Por favor, ingrese todos los campos requeridos' });
@@ -60,12 +60,16 @@ app.post('/api/login', async (req, res) => {
     // Si no es un admin, busca en la colección de tutores
     const tutor = await Tutor.findOne({ email, password }).exec();
     if (tutor) {
+      tutor.deviceToken = deviceToken; // Asignar el token del dispositivo
+      await tutor.save(); // Guardar el token en la base de datos
       return res.json({ userType: 'tutor', matricula: tutor.matricula });
     }
 
     // Si no es un tutor, busca en la colección de alumnos
     const alumno = await Alumno.findOne({ email, password }).exec();
     if (alumno) {
+      alumno.deviceToken = deviceToken; // Asignar el token del dispositivo
+      await alumno.save(); // Guardar el token en la base de datos
       return res.json({ userType: 'alumno', matricula: alumno.matricula });
     }
 
