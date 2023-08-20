@@ -32,6 +32,15 @@ mongoose.connect(`mongodb+srv://${db_user}:${db_pass}@${db_cluster}/${db_name}`,
   });
 
 // Middlewares
+// Middlewares
+const corsOptions = {
+  origin: 'https://green-stamp-api.onrender.com', 
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  credentials: true,
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cors()); // Configura CORS como middleware global
